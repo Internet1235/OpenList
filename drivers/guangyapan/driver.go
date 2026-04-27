@@ -947,4 +947,20 @@ func randomDeviceID() string {
 	return hex.EncodeToString(b)
 }
 
+func (d *GuangYaPan) GetDetails(ctx context.Context) (*model.StorageDetails, error) {
+	if err := d.ensureAccessToken(ctx); err != nil {
+		return nil, err
+	}
+	var resp assetsResp
+	if err := d.postAPI(ctx, "/nd.bizassets.s/v1/get_assets", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &model.StorageDetails{
+		DiskUsage: model.DiskUsage{
+			TotalSpace: resp.Data.TotalSpace,
+			UsedSpace: resp.Data.UsedSpace,
+		},
+	}, nil
+}
+
 var _ driver.Driver = (*GuangYaPan)(nil)

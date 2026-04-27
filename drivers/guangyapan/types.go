@@ -133,6 +133,15 @@ type taskInfoResp struct {
 	} `json:"data"`
 }
 
+type assetsResp struct {
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
+	Data struct {
+		TotalSpace int64        `json:"totalSpaceSize"`
+		UsedSpace int64        `json:"usedSpaceSize"`
+	} `json:"data"`
+}
+
 func unixOrZero(v int64) time.Time {
 	if v <= 0 {
 		return time.Time{}
