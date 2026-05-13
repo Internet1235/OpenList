@@ -159,7 +159,7 @@ func (d *GuangYaPan) List(ctx context.Context, dir model.Obj, args model.ListArg
 			"sortType":  d.SortType,
 			"fileTypes": []int{},
 		}
-		if err := d.postAPI(ctx, "/nd.bizuserres.s/v1/file/get_file_list", body, &resp); err != nil {
+		if err := d.postAPI(ctx, "/userres/v1/file/get_file_list", body, &resp); err != nil {
 			return nil, err
 		}
 		for _, item := range resp.Data.List {
@@ -192,7 +192,7 @@ func (d *GuangYaPan) Link(ctx context.Context, file model.Obj, args model.LinkAr
 	}
 
 	var resp downloadResp
-	if err := d.postAPI(ctx, "/nd.bizuserres.s/v1/get_res_download_url", map[string]any{
+	if err := d.postAPI(ctx, "/userres/v1/get_res_download_url", map[string]any{
 		"fileId": file.GetID(),
 	}, &resp); err != nil {
 		return nil, err
@@ -224,7 +224,7 @@ func (d *GuangYaPan) MakeDir(ctx context.Context, parentDir model.Obj, dirName s
 	}
 
 	var out createDirResp
-	if err := d.postAPI(ctx, "/nd.bizuserres.s/v1/file/create_dir", map[string]any{
+	if err := d.postAPI(ctx, "/userres/v1/file/create_dir", map[string]any{
 		"parentId": parentID,
 		"dirName":  name,
 	}, &out); err != nil {
@@ -251,7 +251,7 @@ func (d *GuangYaPan) Rename(ctx context.Context, srcObj model.Obj, newName strin
 	}
 
 	var out commonResp
-	if err := d.postAPI(ctx, "/nd.bizuserres.s/v1/file/rename", map[string]any{
+	if err := d.postAPI(ctx, "/userres/v1/file/rename", map[string]any{
 		"fileId":  fileID,
 		"newName": name,
 	}, &out); err != nil {
@@ -274,7 +274,7 @@ func (d *GuangYaPan) Remove(ctx context.Context, obj model.Obj) error {
 	}
 
 	var del deleteResp
-	if err := d.postAPI(ctx, "/nd.bizuserres.s/v1/file/delete_file", map[string]any{
+	if err := d.postAPI(ctx, "/userres/v1/file/delete_file", map[string]any{
 		"fileIds": []string{fileID},
 	}, &del); err != nil {
 		return err
@@ -306,7 +306,7 @@ func (d *GuangYaPan) Move(ctx context.Context, srcObj, dstDir model.Obj) error {
 	}
 
 	var out deleteResp
-	if err := d.postAPI(ctx, "/nd.bizuserres.s/v1/file/move_file", map[string]any{
+	if err := d.postAPI(ctx, "/userres/v1/file/move_file", map[string]any{
 		"fileIds":  []string{fileID},
 		"parentId": parentID,
 	}, &out); err != nil {
@@ -337,7 +337,7 @@ func (d *GuangYaPan) Copy(ctx context.Context, srcObj, dstDir model.Obj) error {
 	}
 
 	var out deleteResp
-	if err := d.postAPI(ctx, "/nd.bizuserres.s/v1/file/copy_file", map[string]any{
+	if err := d.postAPI(ctx, "/userres/v1/file/copy_file", map[string]any{
 		"fileIds":  []string{fileID},
 		"parentId": parentID,
 	}, &out); err != nil {
@@ -736,7 +736,7 @@ func (d *GuangYaPan) waitTaskDone(ctx context.Context, taskID string) error {
 	)
 	for i := 0; i < maxTry; i++ {
 		var out taskStatusResp
-		if err := d.postAPI(ctx, "/nd.bizuserres.s/v1/get_task_status", map[string]any{
+		if err := d.postAPI(ctx, "/userres/v1/get_task_status", map[string]any{
 			"taskId": taskID,
 		}, &out); err != nil {
 			return err
@@ -764,7 +764,7 @@ func (d *GuangYaPan) waitTaskDone(ctx context.Context, taskID string) error {
 
 func (d *GuangYaPan) getUploadToken(ctx context.Context, parentID, name string, size int64) (*uploadTokenData, int, error) {
 	var out uploadTokenResp
-	err := d.postAPI(ctx, "/nd.bizuserres.s/v1/get_res_center_token", map[string]any{
+	err := d.postAPI(ctx, "/userres/v1/get_res_center_token", map[string]any{
 		"capacity": 2,
 		"name":     name,
 		"parentId": parentID,
@@ -819,7 +819,7 @@ func (d *GuangYaPan) waitUploadTaskInfo(ctx context.Context, taskID string) erro
 	)
 	for i := 0; i < maxTry; i++ {
 		var out taskInfoResp
-		if err := d.postAPI(ctx, "/nd.bizuserres.s/v1/file/get_info_by_task_id", map[string]any{
+		if err := d.postAPI(ctx, "/userres/v1/file/get_info_by_task_id", map[string]any{
 			"taskId": taskID,
 		}, &out); err != nil {
 			return err
@@ -952,7 +952,7 @@ func (d *GuangYaPan) GetDetails(ctx context.Context) (*model.StorageDetails, err
 		return nil, err
 	}
 	var resp assetsResp
-	if err := d.postAPI(ctx, "/nd.bizassets.s/v1/get_assets", nil, &resp); err != nil {
+	if err := d.postAPI(ctx, "/assets/v1/get_assets", nil, &resp); err != nil {
 		return nil, err
 	}
 	return &model.StorageDetails{
