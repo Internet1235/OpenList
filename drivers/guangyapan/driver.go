@@ -33,6 +33,9 @@ type GuangYaPan struct {
 
 	accountClient *resty.Client
 	apiClient     *resty.Client
+
+	resolvedRootFolderID string
+	rootFolderResolved   bool
 }
 
 func (d *GuangYaPan) Config() driver.Config {
@@ -62,12 +65,15 @@ func (d *GuangYaPan) Init(ctx context.Context) error {
 		d.SortType = 1
 	}
 
+	d.RootPath = strings.TrimSpace(d.RootPath)
 	d.AccessToken = strings.TrimSpace(d.AccessToken)
 	d.RefreshToken = strings.TrimSpace(d.RefreshToken)
 	d.PhoneNumber = strings.TrimSpace(d.PhoneNumber)
 	d.VerifyCode = strings.TrimSpace(d.VerifyCode)
 	d.CaptchaToken = strings.TrimSpace(d.CaptchaToken)
 	d.VerificationID = strings.TrimSpace(d.VerificationID)
+	d.resolvedRootFolderID = ""
+	d.rootFolderResolved = false
 
 	d.accountClient = base.NewRestyClient().
 		SetBaseURL(accountBaseURL).
@@ -99,14 +105,14 @@ func (d *GuangYaPan) Init(ctx context.Context) error {
 	// Priority: access_token -> refresh_token -> sms login.
 	if d.AccessToken != "" {
 		if err := d.validateToken(ctx); err == nil {
-			return nil
+			return d.prepareRootFolder(ctx)
 		}
 		d.AccessToken = ""
 	}
 	if d.RefreshToken != "" {
 		if err := d.refreshToken(ctx); err == nil {
 			if err2 := d.validateToken(ctx); err2 == nil {
-				return nil
+				return d.prepareRootFolder(ctx)
 			}
 		}
 	}
@@ -118,7 +124,10 @@ func (d *GuangYaPan) Init(ctx context.Context) error {
 			if err := d.loginBySMSCode(ctx); err != nil {
 				return err
 			}
-			return d.validateToken(ctx)
+			if err := d.validateToken(ctx); err != nil {
+				return err
+			}
+			return d.prepareRootFolder(ctx)
 		}
 		if d.SendCode {
 			d.setTempStatus("SMS sending in progress...")
@@ -138,15 +147,27 @@ func (d *GuangYaPan) Drop(ctx context.Context) error {
 	return nil
 }
 
+func (d *GuangYaPan) GetRoot(ctx context.Context) (model.Obj, error) {
+	rootID, err := d.getRootFolderID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &model.Object{
+		ID:       rootID,
+		Path:     "/",
+		Name:     "root",
+		Size:     0,
+		Modified: d.Modified,
+		IsFolder: true,
+	}, nil
+}
+
 func (d *GuangYaPan) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([]model.Obj, error) {
 	if err := d.ensureAccessToken(ctx); err != nil {
 		return nil, err
 	}
 
 	parentID := dir.GetID()
-	if parentID == d.RootFolderID {
-		parentID = ""
-	}
 
 	res := make([]model.Obj, 0, d.PageSize)
 	for page := 0; ; page++ {
@@ -192,7 +213,7 @@ func (d *GuangYaPan) Link(ctx context.Context, file model.Obj, args model.LinkAr
 	}
 
 	var resp downloadResp
-	if err := d.postAPI(ctx, "/userres/v1/get_res_download_url", map[string]any{
+	if err := d.postAPI(ctx, "/nd.bizuserres.s/v1/get_res_download_url", map[string]any{
 		"fileId": file.GetID(),
 	}, &resp); err != nil {
 		return nil, err
@@ -219,12 +240,9 @@ func (d *GuangYaPan) MakeDir(ctx context.Context, parentDir model.Obj, dirName s
 	}
 
 	parentID := parentDir.GetID()
-	if parentID == d.RootFolderID {
-		parentID = ""
-	}
 
 	var out createDirResp
-	if err := d.postAPI(ctx, "/userres/v1/file/create_dir", map[string]any{
+	if err := d.postAPI(ctx, "/nd.bizuserres.s/v1/file/create_dir", map[string]any{
 		"parentId": parentID,
 		"dirName":  name,
 	}, &out); err != nil {
@@ -251,7 +269,7 @@ func (d *GuangYaPan) Rename(ctx context.Context, srcObj model.Obj, newName strin
 	}
 
 	var out commonResp
-	if err := d.postAPI(ctx, "/userres/v1/file/rename", map[string]any{
+	if err := d.postAPI(ctx, "/nd.bizuserres.s/v1/file/rename", map[string]any{
 		"fileId":  fileID,
 		"newName": name,
 	}, &out); err != nil {
@@ -274,7 +292,7 @@ func (d *GuangYaPan) Remove(ctx context.Context, obj model.Obj) error {
 	}
 
 	var del deleteResp
-	if err := d.postAPI(ctx, "/userres/v1/file/delete_file", map[string]any{
+	if err := d.postAPI(ctx, "/nd.bizuserres.s/v1/file/delete_file", map[string]any{
 		"fileIds": []string{fileID},
 	}, &del); err != nil {
 		return err
@@ -301,12 +319,9 @@ func (d *GuangYaPan) Move(ctx context.Context, srcObj, dstDir model.Obj) error {
 		return errors.New("file id is empty")
 	}
 	parentID := dstDir.GetID()
-	if parentID == d.RootFolderID {
-		parentID = ""
-	}
 
 	var out deleteResp
-	if err := d.postAPI(ctx, "/userres/v1/file/move_file", map[string]any{
+	if err := d.postAPI(ctx, "/nd.bizuserres.s/v1/file/move_file", map[string]any{
 		"fileIds":  []string{fileID},
 		"parentId": parentID,
 	}, &out); err != nil {
@@ -332,12 +347,9 @@ func (d *GuangYaPan) Copy(ctx context.Context, srcObj, dstDir model.Obj) error {
 		return errors.New("file id is empty")
 	}
 	parentID := dstDir.GetID()
-	if parentID == d.RootFolderID {
-		parentID = ""
-	}
 
 	var out deleteResp
-	if err := d.postAPI(ctx, "/userres/v1/file/copy_file", map[string]any{
+	if err := d.postAPI(ctx, "/nd.bizuserres.s/v1/file/copy_file", map[string]any{
 		"fileIds":  []string{fileID},
 		"parentId": parentID,
 	}, &out); err != nil {
@@ -369,9 +381,6 @@ func (d *GuangYaPan) Put(ctx context.Context, dstDir model.Obj, file model.FileS
 	}
 
 	parentID := dstDir.GetID()
-	if parentID == d.RootFolderID {
-		parentID = ""
-	}
 
 	token, code, err := d.getUploadToken(ctx, parentID, name, file.GetSize())
 	if err != nil {
@@ -413,6 +422,97 @@ func (d *GuangYaPan) Put(ctx context.Context, dstDir model.Obj, file model.FileS
 		return nil
 	}
 	return d.waitUploadTaskInfo(ctx, taskID)
+}
+
+func (d *GuangYaPan) getRootFolderID(ctx context.Context) (string, error) {
+	if d.rootFolderResolved {
+		return d.resolvedRootFolderID, nil
+	}
+	if err := d.ensureAccessToken(ctx); err != nil {
+		return "", err
+	}
+	if err := d.prepareRootFolder(ctx); err != nil {
+		return "", err
+	}
+	return d.resolvedRootFolderID, nil
+}
+
+func (d *GuangYaPan) prepareRootFolder(ctx context.Context) error {
+	rootID, err := d.resolveConfiguredRootFolderID(ctx)
+	if err != nil {
+		return err
+	}
+	d.resolvedRootFolderID = rootID
+	d.rootFolderResolved = true
+	return nil
+}
+
+func (d *GuangYaPan) resolveConfiguredRootFolderID(ctx context.Context) (string, error) {
+	root := strings.TrimSpace(d.RootPath)
+	if root == "" {
+		return "", nil
+	}
+	return d.resolveFolderPath(ctx, root)
+}
+
+func (d *GuangYaPan) resolveFolderPath(ctx context.Context, rootPath string) (string, error) {
+	cleanPath := strings.Trim(strings.ReplaceAll(strings.TrimSpace(rootPath), "\\", "/"), "/")
+	if cleanPath == "" {
+		return "", nil
+	}
+
+	parentID := ""
+	for _, name := range strings.Split(cleanPath, "/") {
+		if name == "" {
+			continue
+		}
+		childID, err := d.findChildFolderID(ctx, parentID, name)
+		if err != nil {
+			return "", err
+		}
+		parentID = childID
+	}
+	return parentID, nil
+}
+
+func (d *GuangYaPan) findChildFolderID(ctx context.Context, parentID, name string) (string, error) {
+	pageSize := d.PageSize
+	if pageSize <= 0 {
+		pageSize = 100
+	}
+
+	seen := 0
+	for page := 0; ; page++ {
+		var resp listResp
+		body := map[string]any{
+			"parentId":  parentID,
+			"page":      page,
+			"pageSize":  pageSize,
+			"orderBy":   d.OrderBy,
+			"sortType":  d.SortType,
+			"fileTypes": []int{},
+		}
+		if err := d.postAPI(ctx, "/nd.bizuserres.s/v1/file/get_file_list", body, &resp); err != nil {
+			return "", err
+		}
+		for _, item := range resp.Data.List {
+			seen++
+			if item.ResType == 2 && item.FileName == name {
+				return item.FileID, nil
+			}
+		}
+		if len(resp.Data.List) < pageSize {
+			break
+		}
+		if resp.Data.Total > 0 && seen >= resp.Data.Total {
+			break
+		}
+	}
+
+	if parentID == "" {
+		return "", fmt.Errorf("resolve root folder path failed: folder %q not found under /", name)
+	}
+	return "", fmt.Errorf("resolve root folder path failed: folder %q not found under parent %s", name, parentID)
 }
 
 func (d *GuangYaPan) ensureAccessToken(ctx context.Context) error {
@@ -736,7 +836,7 @@ func (d *GuangYaPan) waitTaskDone(ctx context.Context, taskID string) error {
 	)
 	for i := 0; i < maxTry; i++ {
 		var out taskStatusResp
-		if err := d.postAPI(ctx, "/userres/v1/get_task_status", map[string]any{
+		if err := d.postAPI(ctx, "/nd.bizuserres.s/v1/get_task_status", map[string]any{
 			"taskId": taskID,
 		}, &out); err != nil {
 			return err
@@ -764,7 +864,7 @@ func (d *GuangYaPan) waitTaskDone(ctx context.Context, taskID string) error {
 
 func (d *GuangYaPan) getUploadToken(ctx context.Context, parentID, name string, size int64) (*uploadTokenData, int, error) {
 	var out uploadTokenResp
-	err := d.postAPI(ctx, "/userres/v1/get_res_center_token", map[string]any{
+	err := d.postAPI(ctx, "/nd.bizuserres.s/v1/get_res_center_token", map[string]any{
 		"capacity": 2,
 		"name":     name,
 		"parentId": parentID,
@@ -819,7 +919,7 @@ func (d *GuangYaPan) waitUploadTaskInfo(ctx context.Context, taskID string) erro
 	)
 	for i := 0; i < maxTry; i++ {
 		var out taskInfoResp
-		if err := d.postAPI(ctx, "/userres/v1/file/get_info_by_task_id", map[string]any{
+		if err := d.postAPI(ctx, "/nd.bizuserres.s/v1/file/get_info_by_task_id", map[string]any{
 			"taskId": taskID,
 		}, &out); err != nil {
 			return err
@@ -964,3 +1064,4 @@ func (d *GuangYaPan) GetDetails(ctx context.Context) (*model.StorageDetails, err
 }
 
 var _ driver.Driver = (*GuangYaPan)(nil)
+var _ driver.GetRooter = (*GuangYaPan)(nil)

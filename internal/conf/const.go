@@ -89,6 +89,9 @@ const (
 	// thunder
 	ThunderTempDir = "thunder_temp_dir"
 
+	// guangyapan
+	GuangYaPanTempDir = "guangyapan_temp_dir"
+
 	// thunderx
 	ThunderXTempDir = "thunderx_temp_dir"
 
